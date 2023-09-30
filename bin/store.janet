@@ -1,0 +1,1 @@
+(spit "store.jimage" (make-image @{}))

@@ -45,4 +45,4 @@
   "On windows you have to add .bar"
   (misc/cond-> "jpm" (= (os/which) :windows) (string ".bat")))
 
-(watch jpm "-l" "janet" (path/join "deviman" "init.janet"))
+(watch "janet" (path/join "deviman" "init.janet"))

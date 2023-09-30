@@ -2,7 +2,7 @@
   (declare-project
     :name "deviman"
     :description ```Web application for managing devices. ```
-    :version "0.0.0"
+    :version "0.0.1"
     :dependencies ["spork"])
 
   (declare-executable
