@@ -31,4 +31,9 @@ To run the development server, run:
 ```
 > jpm -l janet deviman/init.janet
 ```
-  
+
+To watch the project files for modification, and run the development server, which restarts when any file is modified, run:
+
+```
+jpm -l janet bin/dev.janet
+```
