@@ -18,6 +18,11 @@
     (tabseq [[i f] :pairs list] f (os/stat f :modified))
     list))
 
+(defn exe-name
+  [exe]
+  "On windows you have to add .bar"
+  (misc/cond-> exe (= (os/which) :windows) (string ".bat")))
+
 (defn watch
   "Spawns commands, watch all project files and respawns on changes."
   [& cmds]
@@ -29,9 +34,11 @@
     (eachk f cft
       (unless (= (ift f) (cft f))
         (print "\nFile " f " modified")
+        (os/execute [(exe-name "janet-format") f] :p)
         (set restart true))
       (unless (ift f)
         (print "\nFile " f " created")
+        (os/execute [(exe-name "janet-format") f] :p)
         (set restart true))
       (when restart
         (os/proc-kill s)
@@ -40,9 +47,5 @@
         (set ift (all-project-files true))
         (set restart false)))
     (ev/sleep 1)))
-
-(def jpm
-  "On windows you have to add .bar"
-  (misc/cond-> "jpm" (= (os/which) :windows) (string ".bat")))
 
 (watch "janet" (path/join "deviman" "init.janet"))
