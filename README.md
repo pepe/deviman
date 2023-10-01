@@ -26,6 +26,12 @@ To test the codebase run:
 > jpm -l test
 ```
 
+To create initial store, run:
+
+```
+> jpm -l janet bin/store.janet
+```
+
 To run the development server, run:
 
 ```
