@@ -4,13 +4,9 @@
 
 (defn persist-store
   []
-  "Saves the store to the image file"
+  "Persists the store to the image file"
+  (ev/sleep 0)
   (spit (dyn :image-file) (make-image (dyn :store))))
-
-(defn save
-  "Save a `value` under a `key` in store. `value`'s keys get keywordized."
-  [key value]
-  (put (dyn :store) key (map-keys keyword value)))
 
 (defn ip-address?
   "PEG grammar for IP address"
@@ -68,7 +64,7 @@
    :route-doc
    ```
    Entry point to the device manager. Route designated for the web browsers.
-   Does not take any parameters or bodies.
+   Does not take any parameters or body.
    ```}
   [&]
   (layout
@@ -79,8 +75,9 @@
          [:p "Manager " [:strong name] " is present on " [:strong ip]]
          [:section
           [:h3 "Devices"]
-          (if-let [devices (store :devices) _ (not (empty? devices))]
-            [:p "There will be devices list"]
+          (if-let [devices (tracev (store :devices)) _ (not (empty? devices))]
+            [:ul
+             (seq [{:name n} :in devices] [:li n])]
             [:p "There are not any devices, please connect them on "
              [:code ip ":" port "/connect"]])]]]
       manager-form)))
@@ -93,11 +90,26 @@
              "description" (or nil :string))
    :render-mime "text/html"}
   [req body]
-  (ev/spawn
-    (save :manager (req :data))
-    (persist-store))
+  (put (dyn :store) :manager (map-keys keyword (req :data)))
+  (ev/go persist-store)
   @[[:h2 "New manager initialized!"]
     [:a {:href "/"} "Go to Dashboard"]])
+
+
+(defn connect
+  "Connects new device"
+  {:path "/connect"
+   :schema (props :name :string
+                  :key :string
+                  :ip (pred ip-address?))
+   :render-mime "text/plain"}
+  [req body]
+  (def s (dyn :store))
+  (if-not ((dyn :store) :devices)
+    (put s :devices @[body])
+    (update s :devices array/push body))
+  (ev/go persist-store)
+  (string "OK " (body :name)))
 
 (defn main
   "Runs the http server"
