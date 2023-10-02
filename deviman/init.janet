@@ -2,12 +2,10 @@
 (import spork/htmlgen)
 (use spork/misc)
 
-(def image-file "store.jimage")
-
 (defn persist-store
   []
   "Saves the store to the image file"
-  (spit image-file (make-image (dyn :store))))
+  (spit (dyn :image-file) (make-image (dyn :store))))
 
 (defn save
   "Save a `value` under a `key` in store. `value`'s keys get keywordized."
@@ -40,43 +38,59 @@
       [:script {:src "https://unpkg.com/hyperscript.org@0.9.11"}]
       [:script {:src "https://unpkg.com/htmx.org@1.9.6"}]]]])
 
-(defn dashboard
-  "Root page with dashboard"
-  {:path "/"}
-  [&]
-  (layout
-    (if ((dyn :store) :manager)
-      (let [{:name name :ip ip} ((dyn :store) :manager)]
-        @[[:header [:h1 "Dashboard"]]
-          [:main
-           [:p "Manager " [:strong name] " is present on " [:strong ip]]]])
-      @[[:header [:h1 "Initialization"]]
-        [:main
-         [:h2 "Configure new manager"]
-         [:p {:class "error bad box"
-              :style "display: none"
-              :_ "on click 
+(def manager-form
+  @[[:header [:h1 "Initialization"]]
+    [:main
+     [:h2 "Configure new manager"]
+     [:p {:class "error bad box"
+          :style "display: none"
+          :_ "on click 
                     put `` into me
                     hide me"}]
-         [:form {:class "table rows box"
-                 :hx-post "/initialize"
-                 :hx-target "main"
-                 :_ "on htmx:responseError
+     [:form {:class "table rows box"
+             :hx-post "/initialize"
+             :hx-target "main"
+             :_ "on htmx:responseError
                       set text to the event's detail's xhr's response
                       put text into .error
                       show .error"}
-          [:p [:label {:for "name"} "Name"]
-           [:input {:name "name" :required true}]]
-          [:p [:label {:for "ip"} "IP address"]
-           [:input {:name "ip" :required true}]]
-          [:button "Submit"]]]])))
+      [:p
+       [:label {:for "name"} "Name"]
+       [:input {:name "name" :required true}]]
+      [:p
+       [:label {:for "description"} "Description"]
+       [:textarea {:name "description"}]]
+      [:button "Submit"]]]])
+
+(defn dashboard
+  "Root page with dashboard"
+  {:path "/"
+   :route-doc
+   ```
+   Entry point to the device manager. Route designated for the web browsers.
+   Does not take any parameters or bodies.
+   ```}
+  [&]
+  (layout
+    (if-let [store (dyn :store) {:ip ip :port port} store
+             manager (store :manager) {:name name} manager]
+      @[[:header [:h1 "Dashboard"]]
+        [:main
+         [:p "Manager " [:strong name] " is present on " [:strong ip]]
+         [:section
+          [:h3 "Devices"]
+          (if-let [devices (store :devices) _ (not (empty? devices))]
+            [:p "There will be devices list"]
+            [:p "There are not any devices, please connect them on "
+             [:code ip ":" port "/connect"]])]]]
+      manager-form)))
 
 (defn initialize
   "Initializes new manager"
   {:path "/initialize"
    :schema (props
              "name" :string
-             "ip" (pred ip-address?))
+             "description" (or nil :string))
    :render-mime "text/html"}
   [req body]
   (ev/spawn
@@ -87,8 +101,10 @@
 
 (defn main
   "Runs the http server"
-  [&]
-  (setdyn :store (or (load-image (slurp image-file)) @{}))
+  [_ image-file]
+  (def store (load-image (slurp image-file)))
+  (setdyn :image-file image-file)
+  (setdyn :store store)
   (-> (httpf/server)
       httpf/add-bindings-as-routes
-      httpf/listen))
+      (httpf/listen (store :ip) (store :port))))

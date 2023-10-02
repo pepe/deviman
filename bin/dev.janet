@@ -48,4 +48,4 @@
         (set restart false)))
     (ev/sleep 1)))
 
-(watch "janet" (path/join "deviman" "init.janet"))
+(watch "janet" (path/join "deviman" "init.janet") "store.jimage")
