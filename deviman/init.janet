@@ -9,7 +9,7 @@
   (spit (dyn :image-file) (make-image (dyn :store))))
 
 (defn ip-address?
-  "PEG grammar for IP address"
+  "PEG grammar predicate for IP address"
   [str]
   (peg/match
     '{:dig (range "09")
@@ -36,8 +36,23 @@
                  year (inc month) (inc month-day)
                  hours minutes seconds))
 
+(defn precise-time
+  ```
+  Returns precise time `t` with s, ms, us, ns precision
+  as a string.
+  ```
+  [t]
+  (def at (math/abs t))
+  (string/format
+    ;(cond
+       (zero? t) ["0s"]
+       (>= at 1) ["%.3fs" t]
+       (>= at 1e-3) ["%.3fms" (* t 1e3)]
+       (>= at 1e-6) ["%.3fus" (* t 1e6)]
+       (>= at 1e-9) ["%.3fns" (* t 1e9)])))
+
 (defn layout
-  "Wraps content in layout"
+  "Wraps content in the page layout."
   [content]
   @[htmlgen/doctype-html
     [:html {"lang" "en"}
@@ -80,7 +95,7 @@
 (defn- devices-section
   [devices]
   [:section
-   [:h3 "Devices"]
+   [:h3 "Devices (" (length devices) ")"]
    [:table
     [:tr [:th "Name"] [:th "Key"] [:th "Connected"] [:th "Timestamp"]]
     (seq [{:name n :key k :timestamp t :connected c} :in devices
@@ -99,13 +114,16 @@
   (layout
     (if-let [s (dyn :store) {:ip ip :port port} s
              m (s :manager) {:name name} m]
-      @[[:header [:h1 "Dashboard"]]
+      @[[:header
+         {:class "f-row align-items:center justify-content:space-between"}
+         [:h1 "Dashboard"]
+         [:div "Running for " (precise-time (- (os/clock) (dyn :startup)))]]
         [:main
          [:p "Manager " [:strong name] " is present on " [:strong ip]]
          (if-let [devices (s :devices) _ (not (empty? devices))]
            (devices-section devices)
            [:p "There are not any devices, please connect them on "
-            [:code ip ":" port "/connect"]])]]
+            [:code "http://" ip ":" port "/connect"]])]]
       manager-form)))
 
 (defn initialize
@@ -124,6 +142,10 @@
 (defn connect
   "Connects new device"
   {:path "/connect"
+   :route-doc
+   ```
+   Entry point for devices. Designated for programatic HTTP calls.
+   ```
    :schema (props :name :string
                   :key :string
                   :ip (pred ip-address?))
@@ -152,4 +174,5 @@
   (def store (load-image (slurp image-file)))
   (setdyn :image-file image-file)
   (setdyn :store store)
+  (setdyn :startup (os/clock))
   (-> web-server (httpf/listen (store :ip) (store :port))))
