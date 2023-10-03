@@ -35,8 +35,10 @@ jpm -l janet bin/store.janet
 To run the development server, run:
 
 ```
-jpm -l janet deviman/init.janet
+jpm -l janet deviman/init.janet store.jimage
 ```
+
+On the address `http://localhost:8000/` in the browser you should see the application.
 
 To watch the project files for modification, and run the development server, which restarts when any file is modified, run:
 
