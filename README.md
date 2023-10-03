@@ -17,25 +17,25 @@ administration of simple network devices (arduinos, etc).
 To download development dependencies, I mean `spork`, run:
 
 ```
-> jpm -l deps
+jpm -l deps
 ```
 
 To test the codebase run: 
 
 ```
-> jpm -l test
+jpm -l test
 ```
 
 To create initial store, run:
 
 ```
-> jpm -l janet bin/store.janet
+jpm -l janet bin/store.janet
 ```
 
 To run the development server, run:
 
 ```
-> jpm -l janet deviman/init.janet
+jpm -l janet deviman/init.janet
 ```
 
 To watch the project files for modification, and run the development server, which restarts when any file is modified, run:
@@ -43,3 +43,11 @@ To watch the project files for modification, and run the development server, whi
 ```
 jpm -l janet bin/dev.janet
 ```
+
+To simulate device connection to the manager, run:
+
+```
+jpm -l janet bin/connect.janet [num]
+```
+
+Where `num` is optional number of generated connections.
