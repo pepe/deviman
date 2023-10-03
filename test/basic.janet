@@ -1,11 +1,11 @@
 (import ../deviman/init :as dm)
 (use spork/test)
 
-(defn assert-equals
+(defmacro assert-equals
   [a &opt b]
   (if b
-    (assert (= a b) (string "It must be " (describe a) ", but is " (describe b)))
-    (assert b (string "It must be " (describe a)))))
+    ~(assert (= ,a ,b) (string "It must be " (string/format "%m" ,a) ", but is " (string/format "%m" ,b)))
+    ~(assert ,b (string "It must be " (string/format "%n" ,a)))))
 
 (start-suite "Documentation")
 (assert-docs "../deviman/init")

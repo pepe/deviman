@@ -2,12 +2,6 @@
 (import spork/htmlgen)
 (use spork/misc)
 
-(defn persist-store
-  "Persists the store to the image file"
-  []
-  (ev/sleep 0)
-  (spit (dyn :image-file) (make-image (dyn :store))))
-
 (defn ip-address?
   "PEG grammar predicate for IP address"
   [str]
@@ -65,7 +59,7 @@
       [:link {:rel "stylesheet" :href "https://unpkg.com/missing.css@1.1.1"}]
       [:style ":root {--line-length: 60rem}"]]
      [:body content
-      [:script {:src "https://unpkg.com/hyperscript.org@0.9.11"}]
+      [:script {:src "h9ttps://unpkg.com/hyperscript.org@0.9.11"}]
       [:script {:src "https://unpkg.com/htmx.org@1.9.6"}]]]])
 
 (def- manager-form
@@ -134,8 +128,7 @@
              "description" (or nil :string))
    :render-mime "text/html"}
   [req body]
-  (put (dyn :store) :manager (map-keys keyword (req :data)))
-  (ev/go persist-store)
+  (ev/give-supervisor :put :manager (map-keys keyword (req :data)))
   @[[:h2 "New manager initialized!"]
     [:a {:href "/"} "Go to Dashboard"]])
 
@@ -159,13 +152,12 @@
                    :timestamp t
                    :payloads @[(freeze body)]})
       (if-not ((dyn :store) :devices)
-        (put s :devices @[body])
-        (update s :devices array/push body))
-      (ev/go persist-store)
+        (ev/give-supervisor :put :devices @[body])
+        (ev/give-supervisor :add-device body))
       (string "OK " (body :name)))
     (string "FAIL")))
 
-(def- web-server "Template server" (httpf/server))
+(def web-server "Template server" (httpf/server))
 (httpf/add-bindings-as-routes web-server)
 
 (defn main
@@ -173,6 +165,29 @@
   [_ image-file]
   (def store (load-image (slurp image-file)))
   (setdyn :image-file image-file)
-  (setdyn :store store)
   (setdyn :startup (os/clock))
-  (-> web-server (httpf/listen (store :ip) (store :port))))
+  (setdyn :store store)
+  (def sv (ev/chan 10))
+  (ev/go
+    (fn [s]
+      (httpf/listen s (store :ip) (store :port))) web-server sv)
+  (ev/go
+    (fn [c]
+      (forever
+        (match (ev/take c)
+          [:put key value]
+          (do
+            (put (dyn :store) key value)
+            (put (dyn :store) :dirty true))
+          [:add-device device]
+          (do
+            (update (dyn :store) :devices array/push device)
+            (put (dyn :store) :dirty true))))) sv sv)
+  (ev/go
+    (fn []
+      (forever
+        (ev/sleep 1)
+        (when ((dyn :store) :dirty)
+          (eprint "Persisting")
+          (put (dyn :store) :dirty nil)
+          (spit (dyn :image-file) (make-image (dyn :store))))))))
