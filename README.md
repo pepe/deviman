@@ -53,3 +53,15 @@ jpm -l janet bin/connect.janet [num]
 ```
 
 Where `num` is optional number of generated connections.
+
+To build executable, run:
+
+```
+jpm -l build
+```
+
+And then you can run in with:
+
+```
+./build/deviman[.exe] store.jimage
+```
