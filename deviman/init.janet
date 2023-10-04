@@ -48,26 +48,38 @@
 
 # Data
 (def View
-  "View prototype"
+  ```
+  View prototype.
+  
+  This prototype is set to the main store. Its methods are only access points 
+  from the http handlers in to the store. Methods should be domain specific
+  getters of the data inside the store datastructure.
+  ```
   @{:ip-port (fn get-manager [view]
                [(gett view :_store :ip) (gett view :_store :port)])
     :manager (fn get-manager [view] (gett view :_store :manager))
     :devices (fn get-devices [view] (gett view :_store :devices))})
 
-(defn set-data
-  "Give the key and data to the supervisor"
+(defmacro set-data
+  "Give the key and data to the supervisor. Semantic macro."
   [key & data]
-  (ev/give-supervisor key ;data))
+  ~(ev/give-supervisor ,key ,;data))
 
-(defmacro do-dirty
-  "Does `operation` on `store` and marks it dirty."
+(defmacro- do-dirty
+  "Does `operation` on `store` and marks it dirty. Semantic macro."
   [store & operation]
   ~(do
-     ,(tuple (operation 0) store ;(tuple/slice operation 1))
+     ,(tuple (operation 0) store ;(slice operation 1))
      (put ,store :dirty true)))
 
 (defn data-manager
-  "Function for creating data manager fiber"
+  ```
+  Function for creating data manager fiber.
+
+  Operations invoked with `set-data` are taken by the supervisor
+  and processed in this function. These operations are the only way
+  for http handlers to modify the store datastructure.
+  ```
   [store]
   (fn data-manager [supervisor]
     (forever
@@ -80,7 +92,11 @@
         (do-dirty store update-in [:devices key :payloads] array/push payload)))))
 
 (defn data-persistor
-  "Function for creating data manager fiber"
+  ```
+  Function for creating data manager fiber. 
+  
+  In this function every second, the store is persisted to the jimage file.
+  ```
   [image-file store]
   (forever
     (ev/sleep 1)
@@ -92,7 +108,9 @@
 
 # HTTP
 (defn layout
-  "Wraps content in the page layout."
+  ```
+  Wraps content in the page layout.
+  ```
   [desc header main]
   @[htmlgen/doctype-html
     [:html {"lang" "en"}
@@ -100,7 +118,8 @@
       [:meta {"charset" "UTF-8"}]
       [:meta {"name" "viewport"
               "content" "width=device-width, initial-scale=1.0"}]
-      [:meta {"name" "description" "content" (string "Devices manager " desc)}]
+      [:meta {"name" "description"
+              "content" (string "DeviMan - Devices manager - " desc)}]
       [:title "DeviMan"]
       [:link {:rel "stylesheet" :href "https://unpkg.com/missing.css@1.1.1"}]
       [:style ":root {--line-length: 60rem}"]]
@@ -108,8 +127,7 @@
       [:header
        {:class "f-row align-items:center justify-content:space-between"}
        header]
-      [:main
-       main]
+      [:main main]
       [:script {:src "https://unpkg.com/hyperscript.org@0.9.11"}]
       [:script {:src "https://unpkg.com/htmx.org@1.9.6"}]]]])
 
@@ -197,7 +215,7 @@
                   :key :string
                   :ip (pred ip-address?))
    :render-mime "text/plain"}
-  [req body]
+  [_ body]
   (if (:manager (dyn :view))
     (let [now (os/clock)]
       (merge-into body
@@ -220,23 +238,25 @@
      (seq [[ts d] :in ps] [:tr [:td (format-time ts)] [:td (string/format "%m" d)]])]]])
 
 (defn payload
+  "Receives and saves payload from a device."
   {:path "/payload"
    :schema (props :key :string)
    :render-mime "text/plain"}
   [_ body]
-  (set-data :payload (body :key) [(os/clock) (freeze body)])
-  (string "OK " (body :key)))
+  (def key (body :key))
+  (set-data :payload key [(os/clock) (freeze body)])
+  (string "OK " key))
 
 (def- web-state "Template server" (httpf/server))
 (httpf/add-bindings-as-routes web-state)
 
 (defn web-server
-  "Function for creating web server fiber"
+  "Function for creating web server fiber."
   [ip port]
   (fn [web-state] (httpf/listen web-state ip port)))
 
 (defn main
-  "Runs the http server"
+  "Runs the http server."
   [_ image-file]
   (setdyn :startup (os/clock))
   (def store (load-image (slurp image-file)))

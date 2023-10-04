@@ -49,4 +49,4 @@
         (set restart false)))
     (ev/sleep 1)))
 
-(watch "jpm" "test")
+(watch (exe-name "jpm") "test")
