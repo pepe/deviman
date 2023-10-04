@@ -49,10 +49,15 @@
 # Data
 (def View
   "View prototype"
-  @{:get-ip-port (fn get-manager [view]
-                   [(gett view :_store :ip) (gett view :_store :port)])
-    :get-manager (fn get-manager [view] (gett view :_store :manager))
-    :get-devices (fn get-devices [view] (gett view :_store :devices))})
+  @{:ip-port (fn get-manager [view]
+               [(gett view :_store :ip) (gett view :_store :port)])
+    :manager (fn get-manager [view] (gett view :_store :manager))
+    :devices (fn get-devices [view] (gett view :_store :devices))})
+
+(defn set-data
+  "Give the key and data to the supervisor"
+  [key & data]
+  (ev/give-supervisor key ;data))
 
 (defmacro do-dirty
   "Does `operation` on `store` and marks it dirty."
@@ -67,9 +72,9 @@
   (fn [supervisor]
     (forever
       (match (ev/take supervisor)
-        [:put-manager value]
+        [:manager value]
         (do-dirty store put :manager value)
-        [:add-device key device]
+        [:device key device]
         (do-dirty store update :devices put key device)))))
 
 (defn data-persistor
@@ -83,7 +88,7 @@
       (spit image-file (make-image store))
       (gccollect))))
 
-# View
+# HTTP
 (defn layout
   "Wraps content in the page layout."
   [content]
@@ -97,7 +102,8 @@
       [:title "DeviMan"]
       [:link {:rel "stylesheet" :href "https://unpkg.com/missing.css@1.1.1"}]
       [:style ":root {--line-length: 60rem}"]]
-     [:body content
+     [:body
+      content
       [:script {:src "h9ttps://unpkg.com/hyperscript.org@0.9.11"}]
       [:script {:src "https://unpkg.com/htmx.org@1.9.6"}]]]])
 
@@ -105,18 +111,25 @@
   @[[:header [:h1 "Initialization"]]
     [:main
      [:h2 "Configure new manager"]
-     [:p {:class "error bad box"
-          :style "display: none"
-          :_ "on click 
-                put `` into me
-                hide me"}]
-     [:form {:class "table rows box"
-             :hx-post "/initialize"
-             :hx-target "main"
-             :_ "on htmx:responseError
-                  set text to the event's detail's xhr's response
-                  put text into .error
-                  show .error"}
+     [:p
+      {:class "error bad box"
+       :style "display: none"
+       :_ ``
+       on click
+         put "" into me
+         hide me
+       ``}]
+     [:form
+      {:class "table rows box"
+       :hx-post "/initialize"
+       :hx-target "main"
+       :_
+       ``
+       on htmx:responseError
+         set text to the event's detail's xhr's response
+         put text into .error
+         show .error
+       ``}
       [:p
        [:label {:for "name"} "Name"]
        [:input {:name "name" :required true}]]
@@ -145,16 +158,16 @@
    ```}
   [&]
   (def view (dyn :view))
-  (def [ip port] (:get-ip-port view))
+  (def [ip port] (:ip-port view))
   (layout
-    (if-let [{:name name} (:get-manager view)]
+    (if-let [{:name name} (:manager view)]
       @[[:header
          {:class "f-row align-items:center justify-content:space-between"}
          [:h1 "Dashboard"]
          [:div "Running for " (precise-time (- (os/clock) (dyn :startup)))]]
         [:main
          [:p "Manager " [:strong name] " is present on " [:strong ip]]
-         (if-let [devices (:get-devices view) _ (not (empty? devices))]
+         (if-let [devices (:devices view) _ (not (empty? devices))]
            (devices-section devices)
            [:p "There are not any devices, please connect them on "
             [:code "http://" ip ":" port "/connect"]])]]
@@ -168,7 +181,7 @@
              "description" (or nil :string))
    :render-mime "text/html"}
   [req body]
-  (ev/give-supervisor :put-manager (map-keys keyword (req :data)))
+  (set-data :manager (map-keys keyword (req :data)))
   @[[:h2 "New manager initialized!"]
     [:a {:href "/"} "Go to Dashboard"]])
 
@@ -184,14 +197,13 @@
                   :ip (pred ip-address?))
    :render-mime "text/plain"}
   [req body]
-  (def view (dyn :view))
-  (if (:get-manager view)
+  (if (:manager (dyn :view))
     (let [now (os/clock)]
       (merge-into body
                   {:connected now
                    :timestamp now
                    :payloads @[(freeze body)]})
-      (ev/give-supervisor :add-device (body :key) body)
+      (set-data :device (body :key) body)
       (string "OK " (body :name)))
     (error "FAIL")))
 
@@ -206,9 +218,9 @@
 (defn main
   "Runs the http server"
   [_ image-file]
+  (setdyn :startup (os/clock))
   (def store (load-image (slurp image-file)))
   (setdyn :view (table/setproto @{:_store store} View))
-  (setdyn :startup (os/clock))
   (def datavisor (ev/chan 10))
   (ev/go (web-server (store :ip) (store :port)) web-state datavisor)
   (ev/go (data-manager store) datavisor)
