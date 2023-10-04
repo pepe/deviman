@@ -151,6 +151,7 @@
         (if-let [devices (:devices view) _ (not (empty? devices))]
           [:section
            [:h3 "Devices (" (length devices) ")"]
+           [:div [:a {:_ "on click remove <[data-role=payloads]/>"} "Collapse all details"]]
            [:table {:class "width:100%"}
             [:tr [:th "Key"] [:th "Name"] [:th "Connected"]]
             (seq [{:name n :key k :connected c} :in devices
@@ -227,15 +228,20 @@
 
 (defn device
   "Device detail fragment"
-  {:path "/device"}
+  {:path "/device"
+   :route-doc
+   ```
+    Details of the device. Designated for htmx calls.
+    ```}
   [{:query {"key" key}} _]
   (def {:name n :key k :timestamp t :connected c :payloads ps}
     ((:devices (dyn :view)) key))
-  [:tr {:_ "on click remove me"}
+  [:tr {:data-role "payloads" :_ "on click remove me"}
    [:td {:colspan "3"}
     [:table {:class "width:100%"}
      [:tr [:th "Timestamp"] [:th "Payload"]]
-     (seq [[ts d] :in ps] [:tr [:td (format-time ts)] [:td (string/format "%m" d)]])]]])
+     (seq [[ts d] :in ps]
+       [:tr [:td (format-time ts)] [:td (string/format "%m" d)]])]]])
 
 (defn payload
   "Receives and saves payload from a device."
