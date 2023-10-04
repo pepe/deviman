@@ -2,6 +2,7 @@
 (import spork/htmlgen)
 (use spork/misc)
 
+# Utility
 (defn ip-address?
   "PEG grammar predicate for IP address"
   [str]
@@ -45,6 +46,44 @@
        (>= at 1e-6) ["%.3fus" (* t 1e6)]
        (>= at 1e-9) ["%.3fns" (* t 1e9)])))
 
+# Data
+(def View
+  "View prototype"
+  @{:get-ip-port (fn get-manager [view]
+                   [(gett view :_store :ip) (gett view :_store :port)])
+    :get-manager (fn get-manager [view] (gett view :_store :manager))
+    :get-devices (fn get-devices [view] (gett view :_store :devices))})
+
+(defmacro do-dirty
+  "Does `operation` on `store` and marks it dirty."
+  [store & operation]
+  ~(do
+     ,(tuple (operation 0) store ;(tuple/slice operation 1))
+     (put ,store :dirty true)))
+
+(defn data-manager
+  "Function for creating data manager fiber"
+  [store]
+  (fn [supervisor]
+    (forever
+      (match (ev/take supervisor)
+        [:put-manager value]
+        (do-dirty store put :manager value)
+        [:add-device key device]
+        (do-dirty store update :devices put key device)))))
+
+(defn data-persistor
+  "Function for creating data manager fiber"
+  [image-file store]
+  (forever
+    (ev/sleep 1)
+    (when (store :dirty)
+      (eprin "Persisting ...")
+      (put store :dirty nil)
+      (spit image-file (make-image store))
+      (gccollect))))
+
+# View
 (defn layout
   "Wraps content in the page layout."
   [content]
@@ -105,16 +144,17 @@
    Does not take any parameters or body.
    ```}
   [&]
+  (def view (dyn :view))
+  (def [ip port] (:get-ip-port view))
   (layout
-    (if-let [s (dyn :store) {:ip ip :port port} s
-             m (s :manager) {:name name} m]
+    (if-let [{:name name} (:get-manager view)]
       @[[:header
          {:class "f-row align-items:center justify-content:space-between"}
          [:h1 "Dashboard"]
          [:div "Running for " (precise-time (- (os/clock) (dyn :startup)))]]
         [:main
          [:p "Manager " [:strong name] " is present on " [:strong ip]]
-         (if-let [devices (s :devices) _ (not (empty? devices))]
+         (if-let [devices (:get-devices view) _ (not (empty? devices))]
            (devices-section devices)
            [:p "There are not any devices, please connect them on "
             [:code "http://" ip ":" port "/connect"]])]]
@@ -128,7 +168,7 @@
              "description" (or nil :string))
    :render-mime "text/html"}
   [req body]
-  (ev/give-supervisor :put :manager (map-keys keyword (req :data)))
+  (ev/give-supervisor :put-manager (map-keys keyword (req :data)))
   @[[:h2 "New manager initialized!"]
     [:a {:href "/"} "Go to Dashboard"]])
 
@@ -144,50 +184,32 @@
                   :ip (pred ip-address?))
    :render-mime "text/plain"}
   [req body]
-  (def s (dyn :store))
-  (if (s :manager)
-    (let [t (os/clock)]
+  (def view (dyn :view))
+  (if (:get-manager view)
+    (let [now (os/clock)]
       (merge-into body
-                  {:connected t
-                   :timestamp t
+                  {:connected now
+                   :timestamp now
                    :payloads @[(freeze body)]})
-      (if-not ((dyn :store) :devices)
-        (ev/give-supervisor :put :devices @[body])
-        (ev/give-supervisor :add-device body))
+      (ev/give-supervisor :add-device (body :key) body)
       (string "OK " (body :name)))
-    (string "FAIL")))
+    (error "FAIL")))
 
-(def web-server "Template server" (httpf/server))
-(httpf/add-bindings-as-routes web-server)
+(def- web-state "Template server" (httpf/server))
+(httpf/add-bindings-as-routes web-state)
+
+(defn web-server
+  "Function for creating web server fiber"
+  [ip port]
+  (fn [web-state] (httpf/listen web-state ip port)))
 
 (defn main
   "Runs the http server"
   [_ image-file]
   (def store (load-image (slurp image-file)))
-  (setdyn :image-file image-file)
+  (setdyn :view (table/setproto @{:_store store} View))
   (setdyn :startup (os/clock))
-  (setdyn :store store)
-  (def sv (ev/chan 10))
-  (ev/go
-    (fn [s]
-      (httpf/listen s (store :ip) (store :port))) web-server sv)
-  (ev/go
-    (fn [c]
-      (forever
-        (match (ev/take c)
-          [:put key value]
-          (do
-            (put (dyn :store) key value)
-            (put (dyn :store) :dirty true))
-          [:add-device device]
-          (do
-            (update (dyn :store) :devices array/push device)
-            (put (dyn :store) :dirty true))))) sv sv)
-  (ev/go
-    (fn []
-      (forever
-        (ev/sleep 1)
-        (when ((dyn :store) :dirty)
-          (eprint "Persisting")
-          (put (dyn :store) :dirty nil)
-          (spit (dyn :image-file) (make-image (dyn :store))))))))
+  (def datavisor (ev/chan 10))
+  (ev/go (web-server (store :ip) (store :port)) web-state datavisor)
+  (ev/go (data-manager store) datavisor)
+  (ev/go (data-persistor image-file store)))
