@@ -69,13 +69,15 @@
 (defn data-manager
   "Function for creating data manager fiber"
   [store]
-  (fn [supervisor]
+  (fn data-manager [supervisor]
     (forever
       (match (ev/take supervisor)
         [:manager value]
         (do-dirty store put :manager value)
         [:device key device]
-        (do-dirty store update :devices put key device)))))
+        (do-dirty store update :devices put key device)
+        [:payload key payload]
+        (do-dirty store update-in [:devices key :payloads] array/push payload)))))
 
 (defn data-persistor
   "Function for creating data manager fiber"
@@ -83,7 +85,7 @@
   (forever
     (ev/sleep 1)
     (when (store :dirty)
-      (eprin "Persisting ...")
+      (eprint "Persisting ...")
       (put store :dirty nil)
       (spit image-file (make-image store))
       (gccollect))))
@@ -91,62 +93,25 @@
 # HTTP
 (defn layout
   "Wraps content in the page layout."
-  [content]
+  [desc header main]
   @[htmlgen/doctype-html
     [:html {"lang" "en"}
      [:head
       [:meta {"charset" "UTF-8"}]
       [:meta {"name" "viewport"
               "content" "width=device-width, initial-scale=1.0"}]
-      [:meta {"name" "description" "content" "Devices manager"}]
+      [:meta {"name" "description" "content" (string "Devices manager " desc)}]
       [:title "DeviMan"]
       [:link {:rel "stylesheet" :href "https://unpkg.com/missing.css@1.1.1"}]
       [:style ":root {--line-length: 60rem}"]]
      [:body
-      content
-      [:script {:src "h9ttps://unpkg.com/hyperscript.org@0.9.11"}]
+      [:header
+       {:class "f-row align-items:center justify-content:space-between"}
+       header]
+      [:main
+       main]
+      [:script {:src "https://unpkg.com/hyperscript.org@0.9.11"}]
       [:script {:src "https://unpkg.com/htmx.org@1.9.6"}]]]])
-
-(def- manager-form
-  @[[:header [:h1 "Initialization"]]
-    [:main
-     [:h2 "Configure new manager"]
-     [:p
-      {:class "error bad box"
-       :style "display: none"
-       :_ ``
-       on click
-         put "" into me
-         hide me
-       ``}]
-     [:form
-      {:class "table rows box"
-       :hx-post "/initialize"
-       :hx-target "main"
-       :_
-       ``
-       on htmx:responseError
-         set text to the event's detail's xhr's response
-         put text into .error
-         show .error
-       ``}
-      [:p
-       [:label {:for "name"} "Name"]
-       [:input {:name "name" :required true}]]
-      [:p
-       [:label {:for "description"} "Description"]
-       [:textarea {:name "description"}]]
-      [:button "Submit"]]]])
-
-(defn- devices-section
-  [devices]
-  [:section
-   [:h3 "Devices (" (length devices) ")"]
-   [:table
-    [:tr [:th "Name"] [:th "Key"] [:th "Connected"] [:th "Timestamp"]]
-    (seq [{:name n :key k :timestamp t :connected c} :in devices
-          :let [ft (format-time t) fc (format-time c)]]
-      [:tr [:td n] [:td k] [:td fc] [:td ft]])]])
 
 (defn dashboard
   "Root page with dashboard"
@@ -159,19 +124,55 @@
   [&]
   (def view (dyn :view))
   (def [ip port] (:ip-port view))
-  (layout
-    (if-let [{:name name} (:manager view)]
-      @[[:header
-         {:class "f-row align-items:center justify-content:space-between"}
-         [:h1 "Dashboard"]
-         [:div "Running for " (precise-time (- (os/clock) (dyn :startup)))]]
-        [:main
-         [:p "Manager " [:strong name] " is present on " [:strong ip]]
-         (if-let [devices (:devices view) _ (not (empty? devices))]
-           (devices-section devices)
-           [:p "There are not any devices, please connect them on "
-            [:code "http://" ip ":" port "/connect"]])]]
-      manager-form)))
+  (if-let [{:name name} (:manager view)]
+    (layout
+      "List of devices"
+      @[[:h1 "Dashboard"]
+        [:div "Running for " (precise-time (- (os/clock) (dyn :startup)))]]
+      @[[:p "Manager " [:strong name] " is present on " [:strong ip]]
+        (if-let [devices (:devices view) _ (not (empty? devices))]
+          [:section
+           [:h3 "Devices (" (length devices) ")"]
+           [:table {:class "width:100%"}
+            [:tr [:th "Key"] [:th "Name"] [:th "Connected"]]
+            (seq [{:name n :key k :connected c} :in devices
+                  :let [fc (format-time c)]]
+              [:tr
+               [:td [:a {:hx-get (string "/device?key=" k)
+                         :hx-target "closest tr"
+                         :hx-swap "afterend"} k]]
+               [:td n] [:td fc]])]]
+          [:p "There are not any devices, please connect them on "
+           [:code "http://" ip ":" port "/connect"]])])
+    (layout
+      "Manager inicialization"
+      [:h1 "Initialization"]
+      @[[:h2 "Configure new manager"]
+        [:p
+         {:class "error bad box"
+          :style "display: none"
+          :_ ``
+             on click
+               put '' into me
+               hide me
+             ``}]
+        [:form
+         {:class "table rows box"
+          :hx-post "/initialize"
+          :hx-target "main"
+          :_ ``
+             on htmx:responseError
+               set text to the event's detail's xhr's response
+               put text into .error
+               show .error
+             ``}
+         [:p
+          [:label {:for "name"} "Name"]
+          [:input {:name "name" :required true}]]
+         [:p
+          [:label {:for "description"} "Description"]
+          [:textarea {:name "description"}]]
+         [:button "Submit"]]])))
 
 (defn initialize
   "Initializes new manager"
@@ -180,7 +181,7 @@
              "name" :string
              "description" (or nil :string))
    :render-mime "text/html"}
-  [req body]
+  [req _]
   (set-data :manager (map-keys keyword (req :data)))
   @[[:h2 "New manager initialized!"]
     [:a {:href "/"} "Go to Dashboard"]])
@@ -201,11 +202,30 @@
     (let [now (os/clock)]
       (merge-into body
                   {:connected now
-                   :timestamp now
-                   :payloads @[(freeze body)]})
+                   :payloads @[[now (freeze body)]]})
       (set-data :device (body :key) body)
-      (string "OK " (body :name)))
+      (string "OK " (body :key)))
     (error "FAIL")))
+
+(defn device
+  "Device detail fragment"
+  {:path "/device"}
+  [{:query {"key" key}} _]
+  (def {:name n :key k :timestamp t :connected c :payloads ps}
+    ((:devices (dyn :view)) key))
+  [:tr {:_ "on click remove me"}
+   [:td {:colspan "3"}
+    [:table {:class "width:100%"}
+     [:tr [:th "Timestamp"] [:th "Payload"]]
+     (seq [[ts d] :in ps] [:tr [:td (format-time ts)] [:td (string/format "%m" d)]])]]])
+
+(defn payload
+  {:path "/payload"
+   :schema (props :key :string)
+   :render-mime "text/plain"}
+  [_ body]
+  (set-data :payload (body :key) [(os/clock) (freeze body)])
+  (string "OK " (body :key)))
 
 (def- web-state "Template server" (httpf/server))
 (httpf/add-bindings-as-routes web-state)
