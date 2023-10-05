@@ -138,6 +138,10 @@
   []
   ~(dyn :view))
 
+(var <o>
+  "Returns view dynamics. Semantic macro."
+  (dyn :view))
+
 (defn layout
   ```
   Wraps content in the page layout.
@@ -171,7 +175,7 @@
    Does not take any parameters or body.
    ```}
   [&]
-  (def [ip port] (:ip-port (view)))
+  (def [ip port] (:ip-port <o>))
   (if-let [{:name name} (:manager (view))]
     (layout
       "List of devices"
@@ -272,7 +276,8 @@
        [:tr [:td (format-time ts)] [:td (string/format "%m" d)]])]]])
 
 (defn payload
-  "Receives and saves payload from a device."
+  "Receives and saves payload from a device. 
+  Designated for programatic HTTP calls."
   {:path "/payload"
    :schema (props :key :string)
    :render-mime "text/plain"}
@@ -297,7 +302,7 @@
 (defn web-server
   "Function for creating web server fiber."
   [ip port]
-  (fn [web-state] (httpf/listen web-state ip port)))
+  (fn [web-state] (httpf/listen web-state ip port 1)))
 
 (defn main
   "Runs the http server."
@@ -306,6 +311,7 @@
   (def store (load-image (slurp image-file)))
   (eprint "Store is loaded from file " image-file)
   (setdyn :view (table/setproto @{:_store store} View))
+  (set <o> (dyn :view))
   (def webvisor (ev/chan 1024))
   (eprin "HTTP server is ")
   (ev/go (web-server (store :ip) (store :port)) web-state webvisor)
