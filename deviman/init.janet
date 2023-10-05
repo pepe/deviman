@@ -66,11 +66,15 @@
   ~(ev/give-supervisor ,key ,;data))
 
 (defmacro- do-dirty
-  "Does `operation` on `store` and marks it dirty. Semantic macro."
-  [store & operation]
+  ```
+  Does `operation` on `store`, notifies supervisor and marks it
+  dirty. Semantic macro.
+  ```
+  [store & operations]
   ~(do
-     ,(tuple (operation 0) store ;(slice operation 1))
-     (put ,store :dirty true)))
+     ,(seq [operation :in operations]
+        (tuple (operation 0) store ;(slice operation 1)))
+     (ev/give-supervisor :dirty ,store)))
 
 (defn data-manager
   ```
@@ -81,16 +85,16 @@
   for http handlers to modify the store datastructure.
   ```
   [store]
-  (fn data-manager [supervisor]
+  (fn data-manager [webvisor]
     (forever
-      (match (ev/take supervisor)
+      (match (ev/take webvisor)
         [:manager value]
-        (do-dirty store put :manager value)
+        (do-dirty store (put :manager value))
         [:device key device]
-        (do-dirty store update :devices put key device)
+        (do-dirty store (update :devices put key device))
         [:payload key payload]
-        (do-dirty store update-in [:devices key :payloads]
-                  array/push payload)))))
+        (do-dirty store
+                  (update-in [:devices key :payloads] array/push payload))))))
 
 (defn data-persistor
   ```
@@ -98,13 +102,22 @@
   
   In this function every second, the store is persisted to the jimage file.
   ```
-  [image-file store]
-  (forever
-    (ev/sleep 1)
-    (when (store :dirty)
-      (eprint "Persisting ...")
-      (put store :dirty nil)
-      (spit image-file (make-image store))
+  [image-file]
+  (fn data-persistor [datavisor]
+    (def drain (ev/chan 1))
+    (forever
+      (match (ev/take datavisor)
+        [:dirty store]
+        (do
+          (ev/give drain :empty)
+          (ev/sleep 1)
+          (eprin "Persisting ")
+          (def start (os/clock))
+          (while (not (= :empty (last (ev/select datavisor drain)))))
+          (def i (make-image store))
+          (eprin (/ (length i) 1024) "KB")
+          (with [f (os/open image-file :w)] (ev/write f i))
+          (eprint " done in " (precise-time (- (os/clock) start)))))
       (gccollect))))
 
 # HTTP
@@ -272,7 +285,8 @@
   (setdyn :startup (os/clock))
   (def store (load-image (slurp image-file)))
   (setdyn :view (table/setproto @{:_store store} View))
-  (def datavisor (ev/chan 10))
-  (ev/go (web-server (store :ip) (store :port)) web-state datavisor)
-  (ev/go (data-manager store) datavisor)
-  (ev/go (data-persistor image-file store)))
+  (def webvisor (ev/chan 1024))
+  (def datavisor (ev/chan 1024))
+  (ev/go (web-server (store :ip) (store :port)) web-state webvisor)
+  (ev/go (data-manager store) webvisor datavisor)
+  (ev/go (data-persistor image-file) datavisor))
