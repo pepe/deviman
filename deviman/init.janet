@@ -89,7 +89,8 @@
         [:device key device]
         (do-dirty store update :devices put key device)
         [:payload key payload]
-        (do-dirty store update-in [:devices key :payloads] array/push payload)))))
+        (do-dirty store update-in [:devices key :payloads]
+                  array/push payload)))))
 
 (defn data-persistor
   ```
@@ -250,8 +251,12 @@
    :render-mime "text/plain"}
   [_ body]
   (def key (body :key))
-  (set-data :payload key [(os/clock) (freeze body)])
-  (string "OK " key))
+  (def view (dyn :view))
+  (if ((:devices view) key)
+    (do
+      (set-data :payload key [(os/clock) (freeze body)])
+      (string "OK " key))
+    (string "FAIL")))
 
 (def- web-state "Template server" (httpf/server))
 (httpf/add-bindings-as-routes web-state)
