@@ -27,9 +27,9 @@
         :month month
         :month-day month-day
         :year year} (os/date (math/floor time) true))
-  (string/format "%d-%.2d-%.2d %.2d:%.2d:%.2d"
+  (string/format "%d-%.2d-%.2d %.2d:%.2d:%.2d.%.0f"
                  year (inc month) (inc month-day)
-                 hours minutes seconds))
+                 hours minutes seconds (* 10000 (mod time 1))))
 
 (defn precise-time
   ```
@@ -55,55 +55,67 @@
   from the http handlers in to the store. Methods should be domain specific
   getters of the data inside the store datastructure.
   ```
-  @{:ip-port (fn get-manager [view]
+  @{:ip-port (fn get-ip-port [view]
                [(gett view :_store :ip) (gett view :_store :port)])
     :manager (fn get-manager [view] (gett view :_store :manager))
-    :devices (fn get-devices [view] (gett view :_store :devices))})
+    :devices (fn get-devices [view &opt sort]
+               (def devices (gett view :_store :devices))
+               (case sort
+                 :by-connected (sort-by |($ :connected) (values devices))
+                 devices))})
 
-(defmacro set-data
+(defmacro process
   "Give the key and data to the supervisor. Semantic macro."
   [key & data]
   ~(ev/give-supervisor ,key ,;data))
 
-(defmacro- do-dirty
+(defmacro- dirty
   ```
-  Does `operation` on `store`, notifies supervisor and marks it
-  dirty. Semantic macro.
+  Notifies supervisor about the dirty store. Semantic macro.
   ```
-  [store & operations]
-  ~(do
-     ,(seq [operation :in operations]
-        (tuple (operation 0) store ;(slice operation 1)))
-     (ev/give-supervisor :dirty ,store)))
+  [store]
+  ~(ev/give-supervisor :dirty ,store))
 
-(defn data-manager
+(defn data-processor
   ```
   Function for creating data manager fiber.
 
-  Operations invoked with `set-data` are taken by the supervisor
+  Operations invoked with `process` are taken by the supervisor
   and processed in this function. These operations are the only way
   for http handlers to modify the store datastructure.
   ```
   [store]
-  (fn data-manager [webvisor]
+  (fn data-processor [webvisor]
+    (eprint "Data processor is running")
     (forever
       (match (ev/take webvisor)
-        [:manager value]
-        (do-dirty store (put :manager value))
-        [:device key device]
-        (do-dirty store (update :devices put key device))
-        [:payload key payload]
-        (do-dirty store
-                  (update-in [:devices key :payloads] array/push payload))))))
+        [:manager manager]
+        (do
+          (put store :manager (map-keys keyword manager))
+          (dirty store))
+        [:device device]
+        (do
+          (def now (os/clock))
+          (update store :devices put (device :key)
+                  (merge-into device
+                              {:connected now
+                               :payloads @[[now (freeze device)]]}))
+          (dirty store))
+        [:payload payload]
+        (do
+          (update-in store [:devices (payload :key) :payloads]
+                     array/push [(os/clock) (freeze payload)])
+          (dirty store))))))
 
-(defn data-persistor
+(defn store-persistor
   ```
   Function for creating data manager fiber. 
   
   In this function every second, the store is persisted to the jimage file.
   ```
   [image-file]
-  (fn data-persistor [datavisor]
+  (fn store-persistor [datavisor]
+    (eprint "Store persistor is running")
     (def drain (ev/chan 1))
     (forever
       (match (ev/take datavisor)
@@ -121,6 +133,11 @@
       (gccollect))))
 
 # HTTP
+(defmacro view
+  "Returns view dynamics. Semantic macro."
+  []
+  ~(dyn :view))
+
 (defn layout
   ```
   Wraps content in the page layout.
@@ -154,27 +171,27 @@
    Does not take any parameters or body.
    ```}
   [&]
-  (def view (dyn :view))
-  (def [ip port] (:ip-port view))
-  (if-let [{:name name} (:manager view)]
+  (def [ip port] (:ip-port (view)))
+  (if-let [{:name name} (:manager (view))]
     (layout
       "List of devices"
       @[[:h1 "Dashboard"]
         [:div "Running for " (precise-time (- (os/clock) (dyn :startup)))]]
       @[[:p "Manager " [:strong name] " is present on " [:strong ip]]
-        (if-let [devices (:devices view) _ (not (empty? devices))]
+        (if-let [devices (:devices (view) :by-connected)
+                 _ (not (empty? devices))]
           [:section
            [:h3 "Devices (" (length devices) ")"]
-           [:div [:a {:_ "on click remove <[data-role=payloads]/>"} "Collapse all details"]]
+           [:div [:a {:_ "on click remove <[data-role=payloads]/>"}
+                  "Collapse all details"]]
            [:table {:class "width:100%"}
-            [:tr [:th "Key"] [:th "Name"] [:th "Connected"]]
-            (seq [{:name n :key k :connected c} :in devices
-                  :let [fc (format-time c)]]
+            [:tr [:th "Key"] [:th "Name"] [:th "IP"] [:th "Connected"]]
+            (seq [{:name n :key k :ip ip :connected c} :in devices]
               [:tr
                [:td [:a {:hx-get (string "/device?key=" k)
                          :hx-target "closest tr"
                          :hx-swap "afterend"} k]]
-               [:td n] [:td fc]])]]
+               [:td n] [:td ip] [:td (format-time c)]])]]
           [:p "There are not any devices, please connect them on "
            [:code "http://" ip ":" port "/connect"]])])
     (layout
@@ -214,8 +231,8 @@
              "name" :string
              "description" (or nil :string))
    :render-mime "text/html"}
-  [req _]
-  (set-data :manager (map-keys keyword (req :data)))
+  [{:data data} _]
+  (process :manager data)
   @[[:h2 "New manager initialized!"]
     [:a {:href "/"} "Go to Dashboard"]])
 
@@ -231,12 +248,9 @@
                   :ip (pred ip-address?))
    :render-mime "text/plain"}
   [_ body]
-  (if (:manager (dyn :view))
-    (let [now (os/clock)]
-      (merge-into body
-                  {:connected now
-                   :payloads @[[now (freeze body)]]})
-      (set-data :device (body :key) body)
+  (if (:manager (view))
+    (do
+      (process :device body)
       (string "OK " (body :key)))
     (error "FAIL")))
 
@@ -249,9 +263,9 @@
     ```}
   [{:query {"key" key}} _]
   (def {:name n :key k :timestamp t :connected c :payloads ps}
-    ((:devices (dyn :view)) key))
+    ((:devices (view)) key))
   [:tr {:data-role "payloads" :_ "on click remove me"}
-   [:td {:colspan "3"}
+   [:td {:colspan "4"}
     [:table {:class "width:100%"}
      [:tr [:th "Timestamp"] [:th "Payload"]]
      (seq [[ts d] :in ps]
@@ -264,12 +278,18 @@
    :render-mime "text/plain"}
   [_ body]
   (def key (body :key))
-  (def view (dyn :view))
-  (if ((:devices view) key)
+  (if ((:devices (view)) key)
     (do
-      (set-data :payload key [(os/clock) (freeze body)])
+      (process :payload body)
       (string "OK " key))
     (string "FAIL")))
+
+(defn ping
+  "Ping"
+  {:path "/ping"
+   :render-mime "text/plain"}
+  [&]
+  "pong")
 
 (def- web-state "Template server" (httpf/server))
 (httpf/add-bindings-as-routes web-state)
@@ -284,9 +304,12 @@
   [_ image-file]
   (setdyn :startup (os/clock))
   (def store (load-image (slurp image-file)))
+  (eprint "Store is loaded from file " image-file)
   (setdyn :view (table/setproto @{:_store store} View))
   (def webvisor (ev/chan 1024))
-  (def datavisor (ev/chan 1024))
+  (eprin "HTTP server is ")
   (ev/go (web-server (store :ip) (store :port)) web-state webvisor)
-  (ev/go (data-manager store) webvisor datavisor)
-  (ev/go (data-persistor image-file) datavisor))
+  (def datavisor (ev/chan 1024))
+  (ev/go (data-processor store) webvisor datavisor)
+  (ev/go (store-persistor image-file) datavisor)
+  (ev/spawn (eprint "All systems are up")))
