@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="11.90625mm"
+   height="11.90625mm"
+   viewBox="0 0 11.90625 11.90625"
+   version="1.1"
+   id="svg1"
+   sodipodi:docname="logo.svg"
+   inkscape:version="1.3 (0e150ed6c4, 2023-07-21)"
+   inkscape:export-filename="favicon.png"
+   inkscape:export-xdpi="96"
+   inkscape:export-ydpi="96"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="mm"
+     inkscape:zoom="2.321504"
+     inkscape:cx="-24.768426"
+     inkscape:cy="-93.258508"
+     inkscape:window-width="2677"
+     inkscape:window-height="2081"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1"
+     showgrid="false" />
+  <g
+    transform="translate(-68.789177,-84.447235)">
+    <rect
+       style="font-variation-settings:'wght' 700;fill:#ffffff;stroke:#1a1a1a;stroke-width:0.744141;stroke-linejoin:round;stroke-dasharray:none"
+       id="rect4"
+       width="11.162109"
+       height="11.162109"
+       x="69.161247"
+       y="84.819305"
+       rx="1.2402345"
+       ry="1.2402345" />
+    <g
+       id="g6"
+       style="stroke-width:1"
+       transform="matrix(0.24804687,0,0,0.24804687,51.726237,63.500362)">
+      <text
+         xml:space="preserve"
+         transform="matrix(0.26458333,0,0,0.26458333,3.7064996,15.253463)"
+         id="text6"
+         style="font-style:normal;font-variant:normal;font-weight:900;font-stretch:normal;font-size:85.3333px;line-height:0.75;font-family:Inter;-inkscape-font-specification:'Inter, Heavy';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;white-space:pre;shape-inside:url(#rect6);display:inline;stroke-width:1"><tspan
+           x="265.66016"
+           y="382.47988"
+           id="tspan1">DM</tspan></text>
+      <path
+         style="fill:none;stroke:#000000;stroke-width:3;stroke-linecap:butt;stroke-linejoin:miter;stroke-dasharray:none;stroke-opacity:1"
+         d="m 75.054081,93.19389 35.470169,0.01958"
+         id="path6" />
+      <path
+         style="fill:none;stroke:#000000;stroke-width:3;stroke-linecap:butt;stroke-linejoin:miter;stroke-dasharray:none;stroke-opacity:1"
+         d="m 75.054092,123.26886 35.470168,0.0196"
+         id="path6-5" />
+    </g>
+  </g>
+</svg>

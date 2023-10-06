@@ -1,6 +1,7 @@
 (import spork/httpf)
 (import spork/htmlgen)
 (import spork/sh)
+(import spork/path)
 (use spork/misc)
 
 # Utility
@@ -164,6 +165,25 @@
 # HTTP
 (var <o> "Forward reference to view." nil)
 
+(defn static-png-icon
+  "Serve favicon from memory"
+  {:path "/favicon.png"
+   :render-mime "image/png"}
+  [&]
+  (put (dyn :response-headers) "cache-control" "max-age=3600")
+  (comptime (slurp (path/join (dyn :current-file) "../../static/favicon.png"))))
+
+(def logo
+  (slurp (path/join (dyn :current-file) "../../static/favicon.svg")))
+
+(defn static-svg-icon
+  "Serve favicon from memory"
+  {:path "/favicon.svg"
+   :render-mime "image/svg+xml"}
+  [&]
+  (put (dyn :response-headers) "cache-control" "max-age=3600")
+  logo)
+
 (defn layout
   ```
   Wraps content in the page layout.
@@ -179,12 +199,13 @@
               "content" (string "DeviMan - Devices manager - " desc)}]
       [:title "DeviMan"]
       [:link {:rel "stylesheet" :href "https://unpkg.com/missing.css@1.1.1"}]
-      [:link {:rel "icon" :type "image/svg+xml" :href "/img/logo.svg"}]
-      [:link {:rel "icon" :type "image/png" :href "/img/favicon.png"}]
+      [:link {:rel "icon" :type "image/svg+xml" :href "/favicon.svg"}]
+      [:link {:rel "icon" :type "image/png" :href "/favicon.png"}]
       [:style ":root {--line-length: 60rem}"]]
      [:body
       [:header
        {:class "f-row align-items:center justify-content:space-between"}
+       (htmlgen/raw logo)
        header]
       [:main main]
       [:script {:src "https://unpkg.com/hyperscript.org@0.9.11"}]
