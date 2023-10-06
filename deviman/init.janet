@@ -62,7 +62,7 @@
     :devices (fn get-devices [view &named sorted-by]
                (cond-> (gett view :_store :devices)
                        sorted-by (->> values
-                                      (sort-by |(get $ sorted-by)))))})
+                                      (sort-by |(- ($ sorted-by))))))})
 
 (defmacro >>>
   "Give the time, key and data to the supervisor. Semantic macro."
@@ -116,13 +116,18 @@
           (journal time directive)
           (dirty store))))))
 
+(defn journal-name
+  "Creates journal name with `index`."
+  [index]
+  (string/format "journal%i.jimage" index))
+
 (defn store-persistor
   ```
   Function for creating data manager fiber. 
   
   In this function every second, the store is persisted to the jimage file.
   ```
-  [image-file journal-name]
+  [image-file]
   (fn store-persistor [datavisor]
     (eprint "Store persistor is running")
     (def drain (ev/chan 1))
@@ -133,14 +138,10 @@
         (if-not (ev/full drain)
           (ev/spawn
             (ev/give drain :full)
-            (ev/sleep 60)
-            (eprin "Persisting ")
-            (def start (os/clock))
+            (ev/sleep 5)
             (ev/take drain)
             (def i (make-image store))
-            (eprin (/ (length i) 1024) "KB")
             (with [f (os/open image-file :w)] (ev/write f i))
-            (eprint " done in " (precise-time (- (os/clock) start)))
             (ev/give datavisor [:remove-journal])))
         [:journal time entry]
         (with [f (os/open (journal-name journaled) :wc)]
@@ -148,8 +149,7 @@
           (++ journaled))
         [:remove-journal]
         (do
-          (loop [i :range [journaled]] (journal-name i))
-          (eprint journaled " journals removed")
+          (loop [i :range [journaled]] (os/rm (journal-name i)))
           (set journaled 0)))
       (gccollect))))
 
@@ -196,7 +196,7 @@
       @[[:h1 "Dashboard"]
         [:div "Running for " (precise-time (- (os/clock) (dyn :startup)))]]
       @[[:p "Manager " [:strong name] " is present on " [:strong ip]]
-        (if-let [devices (:devices <o> :sort-by :connected)
+        (if-let [devices (:devices <o> :sorted-by :connected)
                  _ (not (empty? devices))]
           [:section
            [:h3 "Devices (" (length devices) ")"]
@@ -319,6 +319,22 @@
     (eprin "HTTP server is ")
     (httpf/listen web-state ip port 1)))
 
+(defn check-journal
+  "Check if journal exists, and restores it, when it does."
+  []
+  (when (os/stat (journal-name 0))
+    (eprint "Journal found")
+    (var i 0)
+    (var jf (journal-name i))
+    (var im "")
+    (while (os/stat jf)
+      (eprint "Restoring " jf)
+      (with [f (os/open jf)]
+        (set im (ev/read f :all)))
+      (os/rm jf)
+      (ev/give-supervisor :process ;(unmarshal im))
+      (set jf (journal-name (++ i))))))
+
 (defn main
   "Runs the http server."
   [_ image-file]
@@ -328,10 +344,8 @@
   (def webvisor (ev/chan 1024))
   (def datavisor (ev/chan 1024))
   (ev/go (data-processor store) webvisor datavisor)
-  (ev/go (store-persistor image-file
-                          (partial string/format "journal%i.jimage"))
-         datavisor)
-  # TODO load journals if they exist
+  (ev/go (store-persistor image-file) datavisor)
+  (ev/go check-journal nil webvisor)
   (set <o> (table/setproto @{:_store store} View))
   (ev/go (web-server (store :ip) (store :port)) web-state webvisor)
   (ev/spawn (eprint "All systems are up")))
