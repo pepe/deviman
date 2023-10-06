@@ -193,18 +193,19 @@
                               "static/htmx.js"))))
 
 (def logo
-  @[[:svg
-     {:xmlns "http://www.w3.org/2000/svg"
-      :width 45
-      :height 45
-      :viewBox "0 0 45 45"}
-     [:g
-      [:rect
-       {:x 2 :y 2 :width 40 :height 40 :rx 5
-        :fill "white" :stroke "black" :stroke-width 2}]
-      [:text {:x 7 :y 25 :font-size 24 :font-weight "bold"}
-       [:tspan {:rotate -15 :dx 2} "D"]
-       [:tspan {:dx -15 :rotate 15 :dy 9} "M"]]]]])
+  (htmlgen/html
+    @[[:svg
+       {:xmlns "http://www.w3.org/2000/svg"
+        :width 45
+        :height 45
+        :viewBox "0 0 45 45"}
+       [:g
+        [:rect
+         {:x 2 :y 2 :width 40 :height 40 :rx 5
+          :fill "white" :stroke "black" :stroke-width 2}]
+        [:text {:x 7 :y 25 :font-size 24 :font-weight "bold"}
+         [:tspan {:rotate -15 :dx 2} "D"]
+         [:tspan {:dx -15 :rotate 15 :dy 9} "M"]]]]]))
 
 (defn static-svg-icon
   "Serve favicon from memory"
@@ -212,7 +213,7 @@
    :render-mime "image/svg+xml"}
   [&]
   (put (dyn :response-headers) "cache-control" "max-age=3600")
-  (comptime (htmlgen/html logo)))
+  logo)
 
 (defn layout
   ```
@@ -234,7 +235,7 @@
      [:body
       [:header
        {:class "f-row align-items:center justify-content:space-between"}
-       logo
+       (htmlgen/raw logo)
        header]
       [:main main]
       [:script {:src "hyperscript.js"}]
