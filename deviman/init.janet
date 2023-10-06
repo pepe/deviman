@@ -165,17 +165,46 @@
 # HTTP
 (var <o> "Forward reference to view." nil)
 
-(defn static-png-icon
-  "Serve favicon from memory"
-  {:path "/favicon.png"
-   :render-mime "image/png"}
+(defn static-missing-css
+  "Serve missing.css from memory"
+  {:path "/missing.css"
+   :render-mime "text/css"}
   [&]
   (put (dyn :response-headers) "cache-control" "max-age=3600")
   (comptime (slurp (path/join (path/dirname (dyn :current-file))
-                              "static/favicon.png"))))
+                              "static/missing.css"))))
+
+(defn static-hyperscript-js
+  "Serve hyperscript.js from memory"
+  {:path "/hyperscript.js"
+   :render-mime "text/javascript"}
+  [&]
+  (put (dyn :response-headers) "cache-control" "max-age=3600")
+  (comptime (slurp (path/join (path/dirname (dyn :current-file))
+                              "static/hyperscript.js"))))
+
+(defn static-htmx-js
+  "Serve htmx.js from memory"
+  {:path "/htmx.js"
+   :render-mime "text/javascript"}
+  [&]
+  (put (dyn :response-headers) "cache-control" "max-age=3600")
+  (comptime (slurp (path/join (path/dirname (dyn :current-file))
+                              "static/htmx.js"))))
 
 (def logo
-  (slurp (path/join (path/dirname (dyn :current-file)) "static/favicon.svg")))
+  @[[:svg
+     {:xmlns "http://www.w3.org/2000/svg"
+      :width 45
+      :height 45
+      :viewBox "0 0 45 45"}
+     [:g
+      [:rect
+       {:x 2 :y 2 :width 40 :height 40 :rx 5
+        :fill "white" :stroke "black" :stroke-width 2}]
+      [:text {:x 7 :y 25 :font-size 24 :font-weight "bold"}
+       [:tspan {:rotate -15 :dx 2} "D"]
+       [:tspan {:dx -15 :rotate 15 :dy 9} "M"]]]]])
 
 (defn static-svg-icon
   "Serve favicon from memory"
@@ -183,7 +212,7 @@
    :render-mime "image/svg+xml"}
   [&]
   (put (dyn :response-headers) "cache-control" "max-age=3600")
-  logo)
+  (comptime (htmlgen/html logo)))
 
 (defn layout
   ```
@@ -199,18 +228,17 @@
       [:meta {"name" "description"
               "content" (string "DeviMan - Devices manager - " desc)}]
       [:title "DeviMan"]
-      [:link {:rel "stylesheet" :href "https://unpkg.com/missing.css@1.1.1"}]
+      [:link {:rel "stylesheet" :href "/missing.css"}]
       [:link {:rel "icon" :type "image/svg+xml" :href "/favicon.svg"}]
-      [:link {:rel "icon" :type "image/png" :href "/favicon.png"}]
       [:style ":root {--line-length: 60rem}"]]
      [:body
       [:header
        {:class "f-row align-items:center justify-content:space-between"}
-       (htmlgen/raw logo)
+       logo
        header]
       [:main main]
-      [:script {:src "https://unpkg.com/hyperscript.org@0.9.11"}]
-      [:script {:src "https://unpkg.com/htmx.org@1.9.6"}]]]])
+      [:script {:src "hyperscript.js"}]
+      [:script {:src "htmx.js"}]]]])
 
 (defn dashboard
   "Root page with dashboard"
