@@ -171,10 +171,11 @@
    :render-mime "image/png"}
   [&]
   (put (dyn :response-headers) "cache-control" "max-age=3600")
-  (comptime (slurp (path/join (dyn :current-file) "../../static/favicon.png"))))
+  (comptime (slurp (path/join (path/dirname (dyn :current-file))
+                              "static/favicon.png"))))
 
 (def logo
-  (slurp (path/join (dyn :current-file) "../../static/favicon.svg")))
+  (slurp (path/join (path/dirname (dyn :current-file)) "static/favicon.svg")))
 
 (defn static-svg-icon
   "Serve favicon from memory"
