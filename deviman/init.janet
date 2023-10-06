@@ -1,5 +1,6 @@
 (import spork/httpf)
 (import spork/htmlgen)
+(import spork/sh)
 (use spork/misc)
 
 # Utility
@@ -64,9 +65,9 @@
                                       (sort-by |(get $ sorted-by)))))})
 
 (defmacro >>>
-  "Give the key and data to the supervisor. Semantic macro."
+  "Give the time, key and data to the supervisor. Semantic macro."
   [key & data]
-  ~(ev/give-supervisor :process [,key ,;data]))
+  ~(ev/give-supervisor :process (os/clock) [,key ,;data]))
 
 (defmacro- dirty
   ```
@@ -74,6 +75,13 @@
   ```
   [store]
   ~(ev/give-supervisor :dirty ,store))
+
+(defmacro- journal
+  ```
+  Notifies supervisor about the journal entry. Semantic macro.
+  ```
+  [time entry]
+  ~(ev/give-supervisor :journal ,time ,entry))
 
 (defn data-processor
   ```
@@ -88,25 +96,24 @@
     (eprint "Data processor is running")
     (forever
       (match (ev/take webvisor)
-        [:process directive]
+        [:process time directive]
         (do
           (match directive
             [:manager manager]
             (put store :manager (map-keys keyword manager))
             [:device device]
-            (let [now (os/clock)]
-              (update store :devices put (device :key)
-                      (merge-into device
-                                  {:connected now
-                                   :timestamp now
-                                   :payloads @[[now (freeze device)]]})))
+            (update store :devices put (device :key)
+                    (merge-into device
+                                {:connected time
+                                 :timestamp time
+                                 :payloads @[[time (freeze device)]]}))
             [:payload payload]
-            (let [now (os/clock)
-                  dp [:devices (payload :key)]]
+            (let [dp [:devices (payload :key)]]
               (-> store
-                  (put-in [;dp :timestamp] now)
+                  (put-in [;dp :timestamp] time)
                   (update-in [;dp :payloads]
-                             array/push [now (freeze payload)]))))
+                             array/push [time (freeze payload)]))))
+          (journal time directive)
           (dirty store))))))
 
 (defn store-persistor
@@ -115,23 +122,35 @@
   
   In this function every second, the store is persisted to the jimage file.
   ```
-  [image-file]
+  [image-file journal-name]
   (fn store-persistor [datavisor]
     (eprint "Store persistor is running")
     (def drain (ev/chan 1))
+    (var journaled 0)
     (forever
       (match (ev/take datavisor)
         [:dirty store]
+        (if-not (ev/full drain)
+          (ev/spawn
+            (ev/give drain :full)
+            (ev/sleep 60)
+            (eprin "Persisting ")
+            (def start (os/clock))
+            (ev/take drain)
+            (def i (make-image store))
+            (eprin (/ (length i) 1024) "KB")
+            (with [f (os/open image-file :w)] (ev/write f i))
+            (eprint " done in " (precise-time (- (os/clock) start)))
+            (ev/give datavisor [:remove-journal])))
+        [:journal time entry]
+        (with [f (os/open (journal-name journaled) :wc)]
+          (ev/write f (marshal [time entry]))
+          (++ journaled))
+        [:remove-journal]
         (do
-          (ev/give drain :empty)
-          (ev/sleep 1)
-          (eprin "Persisting ")
-          (def start (os/clock))
-          (while (not (= :empty (last (ev/select datavisor drain)))))
-          (def i (make-image store))
-          (eprin (/ (length i) 1024) "KB")
-          (with [f (os/open image-file :w)] (ev/write f i))
-          (eprint " done in " (precise-time (- (os/clock) start)))))
+          (loop [i :range [journaled]] (journal-name i))
+          (eprint journaled " journals removed")
+          (set journaled 0)))
       (gccollect))))
 
 # HTTP
@@ -296,7 +315,9 @@
 (defn web-server
   "Function for creating web server fiber."
   [ip port]
-  (fn [web-state] (httpf/listen web-state ip port 1)))
+  (fn [web-state]
+    (eprin "HTTP server is ")
+    (httpf/listen web-state ip port 1)))
 
 (defn main
   "Runs the http server."
@@ -304,11 +325,13 @@
   (setdyn :startup (os/clock))
   (def store (load-image (slurp image-file)))
   (eprint "Store is loaded from file " image-file)
-  (set <o> (table/setproto @{:_store store} View))
   (def webvisor (ev/chan 1024))
-  (eprin "HTTP server is ")
-  (ev/go (web-server (store :ip) (store :port)) web-state webvisor)
   (def datavisor (ev/chan 1024))
   (ev/go (data-processor store) webvisor datavisor)
-  (ev/go (store-persistor image-file) datavisor)
+  (ev/go (store-persistor image-file
+                          (partial string/format "journal%i.jimage"))
+         datavisor)
+  # TODO load journals if they exist
+  (set <o> (table/setproto @{:_store store} View))
+  (ev/go (web-server (store :ip) (store :port)) web-state webvisor)
   (ev/spawn (eprint "All systems are up")))
