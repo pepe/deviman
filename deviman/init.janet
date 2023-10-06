@@ -42,6 +42,14 @@
   (string/format
     ;(cond
        (zero? t) ["0s"]
+       (>= at 604800)
+       ["%iw %s" (div at 604800) (precise-time (mod t 604800))]
+       (>= at 86400)
+       ["%id %s" (div at 86400) (precise-time (mod t 86400))]
+       (>= at 3600)
+       ["%ih %s" (div at 3600) (precise-time (mod t 3600))]
+       (>= at 60)
+       ["%im %s" (div at 60) (precise-time (mod t 60))]
        (>= at 1) ["%.3fs" t]
        (>= at 1e-3) ["%.3fms" (* t 1e3)]
        (>= at 1e-6) ["%.3fus" (* t 1e6)]
@@ -171,6 +179,8 @@
               "content" (string "DeviMan - Devices manager - " desc)}]
       [:title "DeviMan"]
       [:link {:rel "stylesheet" :href "https://unpkg.com/missing.css@1.1.1"}]
+      [:link {:rel "icon" :type "image/svg+xml" :href "/img/logo.svg"}]
+      [:link {:rel "icon" :type "image/png" :href "/img/favicon.png"}]
       [:style ":root {--line-length: 60rem}"]]
      [:body
       [:header
