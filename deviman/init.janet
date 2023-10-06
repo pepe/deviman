@@ -58,16 +58,15 @@
   @{:ip-port (fn get-ip-port [view]
                [(gett view :_store :ip) (gett view :_store :port)])
     :manager (fn get-manager [view] (gett view :_store :manager))
-    :devices (fn get-devices [view &opt sort]
-               (def devices (gett view :_store :devices))
-               (case sort
-                 :by-connected (sort-by |($ :connected) (values devices))
-                 devices))})
+    :devices (fn get-devices [view &named sorted-by]
+               (cond-> (gett view :_store :devices)
+                       sorted-by (->> values
+                                      (sort-by |(get $ sorted-by)))))})
 
-(defmacro process
+(defmacro >>>
   "Give the key and data to the supervisor. Semantic macro."
   [key & data]
-  ~(ev/give-supervisor ,key ,;data))
+  ~(ev/give-supervisor :process [,key ,;data]))
 
 (defmacro- dirty
   ```
@@ -78,9 +77,9 @@
 
 (defn data-processor
   ```
-  Function for creating data manager fiber.
+  Function for creating data processor fiber.
 
-  Operations invoked with `process` are taken by the supervisor
+  Operations invoked with `>>>` are taken by the supervisor
   and processed in this function. These operations are the only way
   for http handlers to modify the store datastructure.
   ```
@@ -89,22 +88,25 @@
     (eprint "Data processor is running")
     (forever
       (match (ev/take webvisor)
-        [:manager manager]
+        [:process directive]
         (do
-          (put store :manager (map-keys keyword manager))
-          (dirty store))
-        [:device device]
-        (do
-          (def now (os/clock))
-          (update store :devices put (device :key)
-                  (merge-into device
-                              {:connected now
-                               :payloads @[[now (freeze device)]]}))
-          (dirty store))
-        [:payload payload]
-        (do
-          (update-in store [:devices (payload :key) :payloads]
-                     array/push [(os/clock) (freeze payload)])
+          (match directive
+            [:manager manager]
+            (put store :manager (map-keys keyword manager))
+            [:device device]
+            (let [now (os/clock)]
+              (update store :devices put (device :key)
+                      (merge-into device
+                                  {:connected now
+                                   :timestamp now
+                                   :payloads @[[now (freeze device)]]})))
+            [:payload payload]
+            (let [now (os/clock)
+                  dp [:devices (payload :key)]]
+              (-> store
+                  (put-in [;dp :timestamp] now)
+                  (update-in [;dp :payloads]
+                             array/push [now (freeze payload)]))))
           (dirty store))))))
 
 (defn store-persistor
@@ -175,7 +177,7 @@
       @[[:h1 "Dashboard"]
         [:div "Running for " (precise-time (- (os/clock) (dyn :startup)))]]
       @[[:p "Manager " [:strong name] " is present on " [:strong ip]]
-        (if-let [devices (:devices <o> :by-connected)
+        (if-let [devices (:devices <o> :sort-by :connected)
                  _ (not (empty? devices))]
           [:section
            [:h3 "Devices (" (length devices) ")"]
@@ -229,7 +231,7 @@
              "description" (or nil :string))
    :render-mime "text/html"}
   [{:data data} _]
-  (process :manager data)
+  (>>> :manager data)
   @[[:h2 "New manager initialized!"]
     [:a {:href "/"} "Go to Dashboard"]])
 
@@ -247,7 +249,7 @@
   [_ body]
   (if (:manager <o>)
     (do
-      (process :device body)
+      (>>> :device body)
       (string "OK " (body :key)))
     (error "FAIL")))
 
@@ -278,7 +280,7 @@
   (def key (body :key))
   (if ((:devices <o>) key)
     (do
-      (process :payload body)
+      (>>> :payload body)
       (string "OK " key))
     "FAIL"))
 
