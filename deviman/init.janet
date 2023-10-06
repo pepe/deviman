@@ -133,14 +133,7 @@
       (gccollect))))
 
 # HTTP
-(defmacro view
-  "Returns view dynamics. Semantic macro."
-  []
-  ~(dyn :view))
-
-(var <o>
-  "Returns view dynamics. Semantic macro."
-  (dyn :view))
+(var <o> "Forward reference to view." nil)
 
 (defn layout
   ```
@@ -176,13 +169,13 @@
    ```}
   [&]
   (def [ip port] (:ip-port <o>))
-  (if-let [{:name name} (:manager (view))]
+  (if-let [{:name name} (:manager <o>)]
     (layout
       "List of devices"
       @[[:h1 "Dashboard"]
         [:div "Running for " (precise-time (- (os/clock) (dyn :startup)))]]
       @[[:p "Manager " [:strong name] " is present on " [:strong ip]]
-        (if-let [devices (:devices (view) :by-connected)
+        (if-let [devices (:devices <o> :by-connected)
                  _ (not (empty? devices))]
           [:section
            [:h3 "Devices (" (length devices) ")"]
@@ -252,7 +245,7 @@
                   :ip (pred ip-address?))
    :render-mime "text/plain"}
   [_ body]
-  (if (:manager (view))
+  (if (:manager <o>)
     (do
       (process :device body)
       (string "OK " (body :key)))
@@ -267,7 +260,7 @@
     ```}
   [{:query {"key" key}} _]
   (def {:name n :key k :timestamp t :connected c :payloads ps}
-    ((:devices (view)) key))
+    ((:devices <o>) key))
   [:tr {:data-role "payloads" :_ "on click remove me"}
    [:td {:colspan "4"}
     [:table {:class "width:100%"}
@@ -283,18 +276,17 @@
    :render-mime "text/plain"}
   [_ body]
   (def key (body :key))
-  (if ((:devices (view)) key)
+  (if ((:devices <o>) key)
     (do
       (process :payload body)
       (string "OK " key))
-    (string "FAIL")))
+    "FAIL"))
 
 (defn ping
   "Ping"
   {:path "/ping"
    :render-mime "text/plain"}
-  [&]
-  "pong")
+  [&] "pong")
 
 (def- web-state "Template server" (httpf/server))
 (httpf/add-bindings-as-routes web-state)
@@ -310,8 +302,7 @@
   (setdyn :startup (os/clock))
   (def store (load-image (slurp image-file)))
   (eprint "Store is loaded from file " image-file)
-  (setdyn :view (table/setproto @{:_store store} View))
-  (set <o> (dyn :view))
+  (set <o> (table/setproto @{:_store store} View))
   (def webvisor (ev/chan 1024))
   (eprin "HTTP server is ")
   (ev/go (web-server (store :ip) (store :port)) web-state webvisor)

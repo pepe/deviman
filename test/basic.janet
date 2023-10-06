@@ -14,7 +14,7 @@
 (start-suite "Unit")
 (assert (dm/ip-address? "192.168.0.1"))
 (assert (not (dm/ip-address? "192.168.0.1g")))
-(assert-equals (dm/format-time 1696321760) "2023-10-03 10:29:20")
+(assert-equals (dm/format-time 1696321760.4321) "2023-10-03 10:29:20.4321")
 (assert-equals (dm/precise-time 1) "1.000s")
 (assert-equals (dm/precise-time 0.01) "10.000ms")
 (assert-equals (dm/precise-time 0.00001) "10.000us")
