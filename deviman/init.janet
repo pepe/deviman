@@ -150,7 +150,7 @@
             (ev/sleep 5)
             (ev/take drain)
             (def i (make-image store))
-            (with [f (os/open image-file :w)] (ev/write f i))
+            (with [f (file/open image-file :w)] (file/write f i))
             (ev/give datavisor [:remove-journal])))
         [:journal time entry]
         (with [f (os/open (journal-name journaled) :wc)]
