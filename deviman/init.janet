@@ -29,9 +29,9 @@
         :month month
         :month-day month-day
         :year year} (os/date (math/floor time) true))
-  (string/format "%d-%.2d-%.2d %.2d:%.2d:%.2d.%.0f"
+  (string/format "%d-%.2d-%.2d %.2d:%.2d:%.2d.%.3d"
                  year (inc month) (inc month-day)
-                 hours minutes seconds (* 10000 (mod time 1))))
+                 hours minutes seconds (math/floor (* 1000 (mod time 1)))))
 
 (defn precise-time
   ```
@@ -256,16 +256,16 @@
   [image-file]
   (fn store-persistor [datavisor]
     (eprint "Store persistor is running")
-    (def drain (ev/chan 1))
+    (var drain false)
     (var journaled 0)
     (forever
       (match (ev/take datavisor)
         [:dirty store]
-        (if-not (ev/full drain)
+        (if-not drain
           (ev/spawn
-            (ev/give drain :full)
+            (set drain true)
             (ev/sleep 5)
-            (ev/take drain)
+            (set drain false)
             (with [f (file/open image-file :wb)] (file/write f (make-image store)))
             (ev/give datavisor [:remove-journal])))
         [:journal time entry]
