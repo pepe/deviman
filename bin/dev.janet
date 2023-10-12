@@ -34,11 +34,9 @@
     (eachk f cft
       (unless (= (ift f) (cft f))
         (print "\nFile " f " modified")
-        (os/execute [(exe-name "janet-format") f] :p)
         (set restart true))
       (unless (ift f)
         (print "\nFile " f " created")
-        (os/execute [(exe-name "janet-format") f] :p)
         (set restart true))
       (when restart
         (os/proc-kill s)
