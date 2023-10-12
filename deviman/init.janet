@@ -57,7 +57,7 @@
        (>= at 1e-9) ["%.3fns" (* t 1e9)])))
 
 # Data
-(def View
+(def <o>
   ```
   View prototype.
   
@@ -65,13 +65,7 @@
   from the http handlers in to the store. Methods should be domain specific
   getters of the data inside the store datastructure.
   ```
-  @{:ip-port (fn get-ip-port [view]
-               [(gett view :_store :ip) (gett view :_store :port)])
-    :manager (fn get-manager [view] (gett view :_store :manager))
-    :devices (fn get-devices [view &named sorted-by]
-               (cond-> (gett view :_store :devices)
-                       sorted-by (->> values
-                                      (sort-by |(- ($ sorted-by))))))})
+  @{:devices @{}})
 
 (defmacro >>>
   "Give the time, key and data to the supervisor. Semantic macro."
@@ -92,6 +86,47 @@
   [time entry]
   ~(ev/give-supervisor :journal ,time ,entry))
 
+(def logo
+  (htmlgen/html
+    @[[:svg
+       {:xmlns "http://www.w3.org/2000/svg"
+        :width 45
+        :height 45
+        :viewBox "0 0 45 45"}
+       [:g
+        [:rect
+         {:x 2 :y 2 :width 40 :height 40 :rx 5
+          :fill "white" :stroke "black" :stroke-width 2}]
+        [:text {:x 7 :y 25 :font-size 24 :font-weight "bold"}
+         [:tspan {:rotate -15 :dx 2} "D"]
+         [:tspan {:dx -15 :rotate 15 :dy 9} "M"]]]]]))
+
+(defn layout
+  ```Wraps content in the page layout.```
+  [desc header main]
+  (htmlgen/raw 
+   (htmlgen/html
+    @[htmlgen/doctype-html
+      [:html {"lang" "en"}
+       [:head
+        [:meta {"charset" "UTF-8"}]
+        [:meta {"name" "viewport"
+                "content" "width=device-width, initial-scale=1.0"}]
+        [:meta {"name" "description"
+                "content" (string "DeviMan - Devices manager - " desc)}]
+        [:title "DeviMan"]
+        [:link {:rel "stylesheet" :href "/missing.css"}]
+        [:link {:rel "icon" :type "image/svg+xml" :href "/favicon.svg"}]
+        [:style ":root {--line-length: 60rem}"]]
+       [:body
+        [:header
+         {:class "f-row align-items:center justify-content:space-between"}
+         (htmlgen/raw logo)
+         header]
+        [:main main]
+        [:script {:src "hyperscript.js"}]
+        [:script {:src "htmx.js"}]]]])))
+
 (defn data-processor
   ```
   Function for creating data processor fiber.
@@ -109,21 +144,103 @@
         (do
           (match directive
             [:manager manager]
-            (put store :manager (map-keys keyword manager))
+            (do
+              (put store :manager (map-keys keyword manager))
+              (ev/give webvisor [:refresh :manager]))
             [:device device]
-            (update store :devices put (device :key)
+            (let [key (device :key)]
+              (update store :devices put key
                     (merge-into device
                                 {:connected time
                                  :timestamp time
                                  :payloads @[[time (freeze device)]]}))
+              (ev/give webvisor [:refresh :devices])
+              (ev/give webvisor [:refresh [:device key]]))
             [:payload payload]
-            (let [dp [:devices (payload :key)]]
+            (let [key (payload :key)
+                  device-path [:devices key]]
               (-> store
-                  (put-in [;dp :timestamp] time)
-                  (update-in [;dp :payloads]
-                             array/push [time (freeze payload)]))))
+                  (put-in [;device-path :timestamp] time)
+                  (update-in [;device-path :payloads]
+                             array/push [time (freeze payload)]))
+              (ev/give webvisor [:refresh [:device key]])))
           (journal time directive)
-          (dirty store))))))
+          (dirty store))
+        [:refresh view]
+        (match view
+          :initialize
+          (put <o> :index
+               (layout
+                 "Manager inicialization"
+                 [:h1 "Initialization"]
+                 @[[:h2 "Configure new manager"]
+                   [:p
+                    {:class "error bad box"
+                     :style "display: none"
+                     :_ ``
+                      on click
+                        put '' into me
+                        hide me
+                      ``}]
+                   [:form
+                    {:class "table rows box"
+                     :hx-post "/initialize"
+                     :hx-target "main"
+                     :_ ``
+                      on htmx:responseError
+                        set text to the event's detail's xhr's response
+                        put text into .error
+                        show .error
+                      ``}
+                    [:p
+                     [:label {:for "name"} "Name"]
+                     [:input {:name "name" :required true}]]
+                    [:p
+                     [:label {:for "description"} "Description"]
+                     [:textarea {:name "description"}]]
+                    [:button "Submit"]]]))
+          :manager
+          (let [{:ip ip :port port :manager manager} store
+                {:name name} manager]
+            (merge-into <o>
+                        {:index
+                         (layout
+                           "Manager connection"
+                           [:h1 "Dashboard"]
+                           @[[:p "Manager " [:strong name] " is present on " [:strong ip]]
+                             [:p "There are not any devices, please connect them on "
+                              [:code "http://" ip ":" port "/connect"]]])
+                         :manager manager}))
+          :devices 
+          (let [{:ip ip :port port :manager {:name name} :devices devices} store]
+            (put <o> :index
+                 (layout
+                  "List of devices"
+                  [:h1 "Dashboard"]
+                  @[[:p "Manager " [:strong name] " is present on " [:strong ip]]
+                    [:section
+                     [:h3 "Devices (" (length devices) ")"]
+                     [:div [:a {:_ "on click remove <[data-role=payloads] td/>"}
+                            "Collapse all details"]]
+                     [:table {:class "width:100%"}
+                      [:tr [:th "Key"] [:th "Name"] [:th "IP"] [:th "Connected"]]
+                      (seq [{:name n :key k :ip ip :connected c} :in devices]
+                        @[[:tr
+                           [:td [:a {:hx-get (string "/device?key=" k)
+                                     :hx-target "next tr[data-role='payloads']"
+                                     :hx-swap "outerHTML"} k]]
+                           [:td n] [:td ip] [:td (format-time c)]]
+                          [:tr {:data-role "payloads"}]])]]])))
+          [:device key]
+          (let [{:devices devices} store
+                {:name n :timestamp t :connected c :payloads ps} (get devices key)]
+            (update <o> :devices put key
+                    [:tr {:data-role "payloads" :_ "on click remove <td/> from me"}
+                     [:td {:colspan "4"}
+                      [:table {:class "width:100%"}
+                       [:tr [:th "Timestamp"] [:th "Payload"]]
+                       (seq [[ts d] :in ps]
+                         [:tr [:td (format-time ts)] [:td (string/format "%m" d)]])]]])))))))
 
 (defn journal-name
   "Creates journal name with `index`."
@@ -149,12 +266,11 @@
             (ev/give drain :full)
             (ev/sleep 5)
             (ev/take drain)
-            (def i (make-image store))
-            (with [f (file/open image-file :w)] (file/write f i))
+            (with [f (file/open image-file :wb)] (file/write f (make-image store)))
             (ev/give datavisor [:remove-journal])))
         [:journal time entry]
-        (with [f (os/open (journal-name journaled) :wc)]
-          (ev/write f (marshal [time entry]))
+        (with [f (file/open (journal-name journaled) :wb)]
+          (file/write f (marshal [time entry]))
           (++ journaled))
         [:remove-journal]
         (do
@@ -162,9 +278,7 @@
           (set journaled 0)))
       (gccollect))))
 
-# HTTP
-(var <o> "Forward reference to view." nil)
-
+# HTT
 (defn static-missing-css
   "Serve missing.css from memory"
   {:path "/missing.css"
@@ -192,21 +306,6 @@
   (comptime (slurp (path/join (path/dirname (dyn :current-file))
                               "static/htmx.js"))))
 
-(def logo
-  (htmlgen/html
-    @[[:svg
-       {:xmlns "http://www.w3.org/2000/svg"
-        :width 45
-        :height 45
-        :viewBox "0 0 45 45"}
-       [:g
-        [:rect
-         {:x 2 :y 2 :width 40 :height 40 :rx 5
-          :fill "white" :stroke "black" :stroke-width 2}]
-        [:text {:x 7 :y 25 :font-size 24 :font-weight "bold"}
-         [:tspan {:rotate -15 :dx 2} "D"]
-         [:tspan {:dx -15 :rotate 15 :dy 9} "M"]]]]]))
-
 (defn static-svg-icon
   "Serve favicon from memory"
   {:path "/favicon.svg"
@@ -214,32 +313,6 @@
   [&]
   (put (dyn :response-headers) "cache-control" "max-age=3600")
   logo)
-
-(defn layout
-  ```
-  Wraps content in the page layout.
-  ```
-  [desc header main]
-  @[htmlgen/doctype-html
-    [:html {"lang" "en"}
-     [:head
-      [:meta {"charset" "UTF-8"}]
-      [:meta {"name" "viewport"
-              "content" "width=device-width, initial-scale=1.0"}]
-      [:meta {"name" "description"
-              "content" (string "DeviMan - Devices manager - " desc)}]
-      [:title "DeviMan"]
-      [:link {:rel "stylesheet" :href "/missing.css"}]
-      [:link {:rel "icon" :type "image/svg+xml" :href "/favicon.svg"}]
-      [:style ":root {--line-length: 60rem}"]]
-     [:body
-      [:header
-       {:class "f-row align-items:center justify-content:space-between"}
-       (htmlgen/raw logo)
-       header]
-      [:main main]
-      [:script {:src "hyperscript.js"}]
-      [:script {:src "htmx.js"}]]]])
 
 (defn dashboard
   "Root page with dashboard"
@@ -250,58 +323,7 @@
    Does not take any parameters or body.
    ```}
   [&]
-  (def [ip port] (:ip-port <o>))
-  (if-let [{:name name} (:manager <o>)]
-    (layout
-      "List of devices"
-      @[[:h1 "Dashboard"]
-        [:div "Running for " (precise-time (- (os/clock) (dyn :startup)))]]
-      @[[:p "Manager " [:strong name] " is present on " [:strong ip]]
-        (if-let [devices (:devices <o> :sorted-by :connected)
-                 _ (not (empty? devices))]
-          [:section
-           [:h3 "Devices (" (length devices) ")"]
-           [:div [:a {:_ "on click remove <[data-role=payloads]/>"}
-                  "Collapse all details"]]
-           [:table {:class "width:100%"}
-            [:tr [:th "Key"] [:th "Name"] [:th "IP"] [:th "Connected"]]
-            (seq [{:name n :key k :ip ip :connected c} :in devices]
-              [:tr
-               [:td [:a {:hx-get (string "/device?key=" k)
-                         :hx-target "closest tr"
-                         :hx-swap "afterend"} k]]
-               [:td n] [:td ip] [:td (format-time c)]])]]
-          [:p "There are not any devices, please connect them on "
-           [:code "http://" ip ":" port "/connect"]])])
-    (layout
-      "Manager inicialization"
-      [:h1 "Initialization"]
-      @[[:h2 "Configure new manager"]
-        [:p
-         {:class "error bad box"
-          :style "display: none"
-          :_ ``
-             on click
-               put '' into me
-               hide me
-             ``}]
-        [:form
-         {:class "table rows box"
-          :hx-post "/initialize"
-          :hx-target "main"
-          :_ ``
-             on htmx:responseError
-               set text to the event's detail's xhr's response
-               put text into .error
-               show .error
-             ``}
-         [:p
-          [:label {:for "name"} "Name"]
-          [:input {:name "name" :required true}]]
-         [:p
-          [:label {:for "description"} "Description"]
-          [:textarea {:name "description"}]]
-         [:button "Submit"]]])))
+  (<o> :index))
 
 (defn initialize
   "Initializes new manager"
@@ -319,19 +341,16 @@
   "Connects new device"
   {:path "/connect"
    :route-doc
-   ```
-   Entry point for devices. Designated for programatic HTTP calls.
-   ```
-   :schema (props :name :string
-                  :key :string
-                  :ip (pred ip-address?))
+   ```Entry point for devices. Designated for programatic HTTP calls.
+   ``` :schema (props :name :string
+                      :key :string
+                      :ip (pred ip-address?))
    :render-mime "text/plain"}
   [_ body]
-  (if (:manager <o>)
-    (do
-      (>>> :device body)
-      (string "OK " (body :key)))
-    (error "FAIL")))
+  (def key (body :key))
+  (assert  (<o> :manager) (string "FAIL " key))
+  (>>> :device body)
+  (string "OK " key))
 
 (defn device
   "Device detail fragment"
@@ -341,14 +360,7 @@
     Details of the device. Designated for htmx calls.
     ```}
   [{:query {"key" key}} _]
-  (def {:name n :key k :timestamp t :connected c :payloads ps}
-    ((:devices <o>) key))
-  [:tr {:data-role "payloads" :_ "on click remove me"}
-   [:td {:colspan "4"}
-    [:table {:class "width:100%"}
-     [:tr [:th "Timestamp"] [:th "Payload"]]
-     (seq [[ts d] :in ps]
-       [:tr [:td (format-time ts)] [:td (string/format "%m" d)]])]]])
+  (get-in <o> [:devices key]))
 
 (defn payload
   "Receives and saves payload from a device. 
@@ -358,11 +370,9 @@
    :render-mime "text/plain"}
   [_ body]
   (def key (body :key))
-  (if ((:devices <o>) key)
-    (do
-      (>>> :payload body)
-      (string "OK " key))
-    "FAIL"))
+  (assert ((<o> :devices) key) "FAIL")
+  (>>> :payload body)
+  (string "OK " key))
 
 (defn ping
   "Ping"
@@ -407,6 +417,13 @@
   (ev/go (data-processor store) webvisor datavisor)
   (ev/go (store-persistor image-file) datavisor)
   (ev/go check-journal nil webvisor)
-  (set <o> (table/setproto @{:_store store} View))
+  (if (not (store :manager))
+    (ev/give webvisor [:refresh :initialize])
+    (do
+      (ev/give webvisor [:refresh :manager])
+      (when-let [devices (store :devices)
+               _ (not (empty? devices))]
+        (ev/give webvisor [:refresh :devices])
+        (each d devices (ev/give webvisor [:refresh [:device (d :key)]])))))
   (ev/go (web-server (store :ip) (store :port)) web-state webvisor)
   (ev/spawn (eprint "All systems are up")))
